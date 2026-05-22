@@ -119,7 +119,7 @@ class MarketDataFeed:
                 async with websockets.connect(
                     url,
                     ping_interval=20,
-                    ping_timeout=10,
+                    ping_timeout=60,
                     max_queue=1000,
                 ) as ws:
                     logger.info("WS connected | %s", url)
