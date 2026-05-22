@@ -32,7 +32,14 @@ interface Input {
   realPosition?: PositionData | null;
 }
 
-export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosition }: Input) {
+export function useTradeJournal({
+  signal,
+  livePrice,
+  gap,
+  sma25,
+  sma99,
+  realPosition,
+}: Input) {
   const [trades, setTrades] = useState<TradeEntry[]>([]);
   const [stats, setStats] = useState({
     totalTrades: 0,
@@ -44,34 +51,55 @@ export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosi
   });
 
   const prevSignalRef = useRef<"LONG" | "SHORT" | "FLAT">("FLAT");
-  const tradeCounterRef = useRef(0);
+  const tradeCounterRef = useRef<number>(0);
   const openTradeIdRef = useRef<number | null>(null);
-  const seededRef = useRef(false);
-  const historicalLoadedRef = useRef(false);
+  const seededRef = useRef<boolean>(false);
+  const historicalLoadedRef = useRef<boolean>(false);
 
-  // ── Load historical trades from CSV on first mount ────────────
+  // ─────────────────────────────────────────────────────────────
+  // Load historical trades from CSV
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (historicalLoadedRef.current) return;
+
     historicalLoadedRef.current = true;
 
     const loadHistoricalTrades = async () => {
       try {
         const res = await fetch("/api/trades");
-        if (!res.ok) throw new Error("Failed to fetch trades");
+
+        if (!res.ok) {
+          throw new Error("Failed to fetch trades");
+        }
+
         const data = await res.json();
-        const historicalTrades = data.trades || [];
-        
+
+        const historicalTrades: any[] = data.trades || [];
+
         if (historicalTrades.length > 0) {
-          // Convert string dates to Date objects
-          const parsed = historicalTrades.map((t: any) => ({
+          const parsed: TradeEntry[] = historicalTrades.map((t: any) => ({
             ...t,
-            entryTime: typeof t.entryTime === "string" ? new Date(t.entryTime) : t.entryTime,
-            exitTime: t.exitTime ? (typeof t.exitTime === "string" ? new Date(t.exitTime) : t.exitTime) : null,
+
+            entryTime:
+              typeof t.entryTime === "string"
+                ? new Date(t.entryTime)
+                : t.entryTime,
+
+            exitTime: t.exitTime
+              ? typeof t.exitTime === "string"
+                ? new Date(t.exitTime)
+                : t.exitTime
+              : null,
           }));
+
           setTrades(parsed);
-          
-          // Update trade counter to be higher than the last trade ID
-          const maxId = Math.max(...parsed.map(t => t.id), 0);
+
+          // Fix TypeScript error
+          const maxId = Math.max(
+            ...parsed.map((t: TradeEntry) => t.id),
+            0
+          );
+
           tradeCounterRef.current = maxId;
         }
       } catch (err) {
@@ -82,15 +110,21 @@ export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosi
     loadHistoricalTrades();
   }, []);
 
-  // ── Seed open trade from real Binance position on first load ──
+  // ─────────────────────────────────────────────────────────────
+  // Seed open trade from Binance position
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (seededRef.current) return;
     if (!realPosition) return;
+
     const amt = realPosition.positionAmt;
+
     if (Math.abs(amt) < 0.0001) return;
 
     seededRef.current = true;
+
     const side: "LONG" | "SHORT" = amt > 0 ? "LONG" : "SHORT";
+
     tradeCounterRef.current = 1;
     openTradeIdRef.current = 1;
     prevSignalRef.current = side;
@@ -99,7 +133,7 @@ export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosi
       id: 1,
       symbol: "BTCUSDT",
       side,
-      entryTime: new Date(Date.now() - 60_000), // approximate; no timestamp from API
+      entryTime: new Date(Date.now() - 60_000),
       entryPrice: realPosition.entryPrice,
       exitTime: null,
       exitPrice: null,
@@ -111,48 +145,81 @@ export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosi
       status: "OPEN",
       unrealisedPnl: realPosition.unRealizedProfit,
     };
+
     setTrades([seedTrade]);
   }, [realPosition]);
 
-  // ── Keep open trade PnL in sync with real Binance data ──────
+  // ─────────────────────────────────────────────────────────────
+  // Sync live Binance PnL
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!realPosition) return;
+
     const amt = realPosition.positionAmt;
+
     setTrades((prev) => {
       const openIdx = prev.findIndex((t) => t.status === "OPEN");
+
       if (openIdx === -1) return prev;
-      const t = prev[openIdx];
+
+      const currentTrade = prev[openIdx];
+
+      // Position closed externally
       if (Math.abs(amt) < 0.0001) {
-        // Position closed externally — mark it closed
-        const pnl = parseFloat(realPosition.unRealizedProfit.toFixed(4));
+        const pnl = parseFloat(
+          realPosition.unRealizedProfit.toFixed(4)
+        );
+
         const updated = [...prev];
+
         updated[openIdx] = {
-          ...t,
+          ...currentTrade,
           status: "CLOSED",
           exitTime: new Date(),
           exitPrice: realPosition.markPrice,
-          moveUsd: t.side === "LONG"
-            ? parseFloat((realPosition.markPrice - t.entryPrice).toFixed(2))
-            : parseFloat((t.entryPrice - realPosition.markPrice).toFixed(2)),
+          moveUsd:
+            currentTrade.side === "LONG"
+              ? parseFloat(
+                  (
+                    realPosition.markPrice -
+                    currentTrade.entryPrice
+                  ).toFixed(2)
+                )
+              : parseFloat(
+                  (
+                    currentTrade.entryPrice -
+                    realPosition.markPrice
+                  ).toFixed(2)
+                ),
+
           pnlUsdt: pnl,
           exitReason: "closed_externally",
           unrealisedPnl: null,
         };
+
         openTradeIdRef.current = null;
+
         return updated;
       }
-      // Update PnL from Binance
+
+      // Update live PnL
       const updated = [...prev];
+
       updated[openIdx] = {
-        ...t,
+        ...currentTrade,
         qty: Math.abs(amt),
-        unrealisedPnl: parseFloat(realPosition.unRealizedProfit.toFixed(4)),
+        unrealisedPnl: parseFloat(
+          realPosition.unRealizedProfit.toFixed(4)
+        ),
       };
+
       return updated;
     });
   }, [realPosition]);
 
-  // ── Signal-driven trade open/close ──────────────────────────
+  // ─────────────────────────────────────────────────────────────
+  // Signal-driven trade logic
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (livePrice === null || livePrice <= 0) return;
 
@@ -162,22 +229,33 @@ export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosi
     setTrades((prev) => {
       let updated = [...prev];
 
-      const openIdx = updated.findIndex((t) => t.status === "OPEN");
+      const openIdx = updated.findIndex(
+        (t) => t.status === "OPEN"
+      );
 
-      // ── TP check (fallback when real position data is absent) ─
+      // Take profit fallback
       if (openIdx !== -1 && !realPosition) {
-        const t = updated[openIdx];
-        const move = t.side === "LONG"
-          ? livePrice - t.entryPrice
-          : t.entryPrice - livePrice;
+        const trade = updated[openIdx];
+
+        const move =
+          trade.side === "LONG"
+            ? livePrice - trade.entryPrice
+            : trade.entryPrice - livePrice;
+
         updated[openIdx] = {
-          ...t,
-          unrealisedPnl: parseFloat((move * t.qty).toFixed(4)),
+          ...trade,
+          unrealisedPnl: parseFloat(
+            (move * trade.qty).toFixed(4)
+          ),
         };
+
         if (move >= TAKE_PROFIT_MOVE) {
-          const pnl = parseFloat((move * t.qty).toFixed(4));
+          const pnl = parseFloat(
+            (move * trade.qty).toFixed(4)
+          );
+
           updated[openIdx] = {
-            ...t,
+            ...trade,
             status: "CLOSED",
             exitTime: new Date(),
             exitPrice: livePrice,
@@ -186,35 +264,53 @@ export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosi
             exitReason: `take_profit | move=$${move.toFixed(0)}`,
             unrealisedPnl: null,
           };
+
           openTradeIdRef.current = null;
           prevSignalRef.current = currSignal;
+
           return updated;
         }
       }
 
-      // ── Signal change handling ───────────────────────────────
-      if (currSignal === prevSignal) return updated;
+      // No signal change
+      if (currSignal === prevSignal) {
+        return updated;
+      }
+
       prevSignalRef.current = currSignal;
 
       const wasInTrade = openIdx !== -1;
 
+      // Close existing trade
       if (wasInTrade) {
-        const t = updated[openIdx];
-        const move = t.side === "LONG"
-          ? livePrice - t.entryPrice
-          : t.entryPrice - livePrice;
-        // Prefer real PnL if available
-        const pnl = realPosition && Math.abs(realPosition.positionAmt) > 0
-          ? parseFloat(realPosition.unRealizedProfit.toFixed(4))
-          : parseFloat((move * t.qty).toFixed(4));
-        const crossType = currSignal === "LONG"
-          ? "golden_cross"
-          : currSignal === "SHORT"
-          ? "death_cross"
-          : "signal_flat";
-        const reason = `${crossType} | SMA25=${sma25?.toFixed(2) ?? "?"} SMA99=${sma99?.toFixed(2) ?? "?"}`;
+        const trade = updated[openIdx];
+
+        const move =
+          trade.side === "LONG"
+            ? livePrice - trade.entryPrice
+            : trade.entryPrice - livePrice;
+
+        const pnl =
+          realPosition &&
+          Math.abs(realPosition.positionAmt) > 0
+            ? parseFloat(
+                realPosition.unRealizedProfit.toFixed(4)
+              )
+            : parseFloat((move * trade.qty).toFixed(4));
+
+        const crossType =
+          currSignal === "LONG"
+            ? "golden_cross"
+            : currSignal === "SHORT"
+            ? "death_cross"
+            : "signal_flat";
+
+        const reason = `${crossType} | SMA25=${
+          sma25?.toFixed(2) ?? "?"
+        } SMA99=${sma99?.toFixed(2) ?? "?"}`;
+
         updated[openIdx] = {
-          ...t,
+          ...trade,
           status: "CLOSED",
           exitTime: new Date(),
           exitPrice: livePrice,
@@ -223,15 +319,23 @@ export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosi
           exitReason: reason,
           unrealisedPnl: null,
         };
+
         openTradeIdRef.current = null;
       }
 
-      // Open new trade if signal is non-FLAT and gap qualifies
+      // Open new trade
       if (currSignal !== "FLAT" && gap >= MIN_GAP) {
         tradeCounterRef.current += 1;
+
         const newId = tradeCounterRef.current;
-        const realAmt = realPosition ? Math.abs(realPosition.positionAmt) : 0;
-        const qty = realAmt > 0.0001 ? realAmt : 0.007;
+
+        const realAmt = realPosition
+          ? Math.abs(realPosition.positionAmt)
+          : 0;
+
+        const qty =
+          realAmt > 0.0001 ? realAmt : 0.007;
+
         const newTrade: TradeEntry = {
           id: newId,
           symbol: "BTCUSDT",
@@ -248,30 +352,56 @@ export function useTradeJournal({ signal, livePrice, gap, sma25, sma99, realPosi
           status: "OPEN",
           unrealisedPnl: 0,
         };
+
         openTradeIdRef.current = newId;
+
         updated = [newTrade, ...updated];
       }
 
       return updated;
     });
-  }, [signal, livePrice, gap, sma25, sma99]);
+  }, [signal, livePrice, gap, sma25, sma99, realPosition]);
 
-  // ── Stats ────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
+  // Stats
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const closed = trades.filter((t) => t.status === "CLOSED");
-    const open = trades.filter((t) => t.status === "OPEN");
-    const wins = closed.filter((t) => (t.pnlUsdt ?? 0) > 0).length;
-    const losses = closed.filter((t) => (t.pnlUsdt ?? 0) <= 0).length;
-    const totalPnl = closed.reduce((s, t) => s + (t.pnlUsdt ?? 0), 0);
+    const closed = trades.filter(
+      (t) => t.status === "CLOSED"
+    );
+
+    const open = trades.filter(
+      (t) => t.status === "OPEN"
+    );
+
+    const wins = closed.filter(
+      (t) => (t.pnlUsdt ?? 0) > 0
+    ).length;
+
+    const losses = closed.filter(
+      (t) => (t.pnlUsdt ?? 0) <= 0
+    ).length;
+
+    const totalPnl = closed.reduce(
+      (sum, t) => sum + (t.pnlUsdt ?? 0),
+      0
+    );
+
     setStats({
       totalTrades: trades.length,
       openTrades: open.length,
       wins,
       losses,
       totalPnl: parseFloat(totalPnl.toFixed(4)),
-      winRate: closed.length > 0 ? Math.round((wins / closed.length) * 100) : 0,
+      winRate:
+        closed.length > 0
+          ? Math.round((wins / closed.length) * 100)
+          : 0,
     });
   }, [trades]);
 
-  return { trades, stats };
+  return {
+    trades,
+    stats,
+  };
 }
