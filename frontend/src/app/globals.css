@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0a0c10;
+  --bg-card: #111318;
+  --bg-card-hover: #161920;
+  --border: #1e2330;
+  --text-muted: #4b5563;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: #e5e7eb;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.pulse-green {
+  animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 196, 140, 0.4); }
+  50%       { box-shadow: 0 0 0 6px rgba(0, 196, 140, 0); }
+}
+
+.pulse-red {
+  animation: pulse-red 2s infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 106, 0.4); }
+  50%       { box-shadow: 0 0 0 6px rgba(255, 77, 106, 0); }
+}
+
+.blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
+}
